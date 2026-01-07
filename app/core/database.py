@@ -8,3 +8,11 @@ client = MongoClient(MONGO_URI)
 
 # ✅ THIS is what was missing
 db = client[DB_NAME]
+test_collection = db.test_collection
+
+result = test_collection.insert_one({
+    "name": "Test User",
+    "status": "MongoDB connected"
+})
+
+print("Inserted ID:", result.inserted_id)

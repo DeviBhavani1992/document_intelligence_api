@@ -1,20 +1,46 @@
-from openai import OpenAI
-import os
+import requests
+import json
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+OLLAMA_URL = "http://localhost:11434/api/chat"
+MODEL_NAME = "gemma:2b"
 
 def summarize_text(text: str) -> str:
     if not text.strip():
         return "No text found to summarize."
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [
             {"role": "system", "content": "You are a helpful assistant that summarizes documents clearly."},
             {"role": "user", "content": f"Summarize the following document:\n\n{text}"}
         ],
-        temperature=0.3,
-        max_tokens=300
-    )
+        "options": {
+            "temperature": 0.3,
+            "num_predict": 300
+        }
+    }
 
-    return response.choices[0].message.content.strip()
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json=payload,
+            stream=True,   # IMPORTANT for streaming responses
+            timeout=180
+        )
+        response.raise_for_status()
+
+        full_text = ""
+
+        for line in response.iter_lines():
+            if line:
+                data = json.loads(line.decode("utf-8"))
+                if "message" in data and "content" in data["message"]:
+                    full_text += data["message"]["content"]
+
+                if data.get("done"):
+                    break
+
+        return full_text.strip()
+
+    except requests.exceptions.RequestException as e:
+        return f"Ollama summarization failed: {str(e)}"

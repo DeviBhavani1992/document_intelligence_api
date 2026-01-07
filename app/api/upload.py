@@ -3,7 +3,8 @@ import os
 import uuid
 
 from app.services.pdf_service import extract_text_from_pdf
-from app.services.ai_service import summarize_text   # ✅ NEW IMPORT
+from app.services.ai_service import summarize_text
+from app.services.document_service import save_document
 
 router = APIRouter()
 
@@ -21,7 +22,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    # 1️⃣ Validate type
+    # 1️⃣ Validate file type
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=400,
@@ -31,7 +32,7 @@ async def upload_file(file: UploadFile = File(...)):
     # 2️⃣ Read file
     contents = await file.read()
 
-    # 3️⃣ Validate size
+    # 3️⃣ Validate file size
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
@@ -43,8 +44,14 @@ async def upload_file(file: UploadFile = File(...)):
     safe_name = f"{uuid.uuid4()}.{ext}"
     file_path = os.path.join(UPLOAD_DIR, safe_name)
 
-    with open(file_path, "wb") as f:
-        f.write(contents)
+    try:
+        with open(file_path, "wb") as f:
+            f.write(contents)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"File save failed: {str(e)}"
+        )
 
     # 5️⃣ Extract text (PDF only)
     extracted_text = None
@@ -57,7 +64,7 @@ async def upload_file(file: UploadFile = File(...)):
             detail=f"PDF extraction failed: {str(e)}"
         )
 
-    # 6️⃣ AI Summarization (NEW)
+    # 6️⃣ AI Summarization
     summary = None
     try:
         if extracted_text:
@@ -68,27 +75,36 @@ async def upload_file(file: UploadFile = File(...)):
             detail=f"AI summarization failed: {str(e)}"
         )
 
-    # 7️⃣ Prepare MongoDB document (skipped in demo)
+    # 7️⃣ Prepare MongoDB document
     document_data = {
         "original_filename": file.filename,
         "saved_filename": safe_name,
         "content_type": file.content_type,
         "file_path": file_path,
         "file_size": len(contents),
+        "text_length": len(extracted_text) if extracted_text else 0,
         "extracted_text": extracted_text,
         "summary": summary
     }
 
-    document_id = None  # MongoDB skipped
+    # 8️⃣ Save to MongoDB
+    try:
+        document_id = save_document(document_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database save failed: {str(e)}"
+        )
 
-    # 8️⃣ Response
+    # 9️⃣ Response
     return {
         "status": "success",
+        "document_id": document_id,
         "original_filename": file.filename,
         "saved_filename": safe_name,
         "content_type": file.content_type,
         "file_size": len(contents),
         "text_length": len(extracted_text) if extracted_text else 0,
         "extracted_text_preview": extracted_text[:500] if extracted_text else None,
-        "summary": summary   # ✅ AI OUTPUT
+        "summary": summary
     }
